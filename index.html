@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>イラスト会社 くじ引き（12時でリセット）</title>
+  <style>
+    body { font-family: sans-serif; margin: 2em; }
+    input, button { font-size: 1em; margin: 0.5em; }
+    #result { font-size: 1.5em; margin-top: 1em; }
+    #prizes { margin-bottom: 1em; }
+    ul { margin: 0.5em 0 1em 1.5em; }
+  </style>
+</head>
+<body>
+  <div id="nameInputScreen" style="display:none;">
+    <h2>名前を入力してください</h2>
+    <input type="text" id="userNameInput" placeholder="名前">
+    <button id="userNameBtn">決定</button>
+  </div>
+  <div id="mainScreen" style="display:none;">
+    <h1>イラスト会社 くじ引き（12時でリセット）</h1>
+    <div id="prizes">
+      <strong>くじの内容（全20本）:</strong>
+      <ul>
+        <li>特賞 × 1本</li>
+        <li>1等 × 2本</li>
+        <li>2等 × 3本</li>
+        <li>3等 × 4本</li>
+        <li>4等 × 5本</li>
+        <li>ハズレ × 5本</li>
+      </ul>
+    </div>
+    <button id="drawBtn">くじを引く</button>
+    <button id="easyArtBtn" style="display:none;">簡単な絵</button>
+    <button id="hardArtBtn" style="display:none;">難しい絵</button>
+    <button id="viewHistoryBtn" style="display:none;">全員のくじ履歴を見る</button>
+    <div id="result"></div>
+    <div id="history" style="margin-top:2em;"></div>
+  </div>
+  <script>
+    const KUJI_LIST = [
+      '特賞',
+      '1等', '1等',
+      '2等', '2等', '2等',
+      '3等', '3等', '3等', '3等',
+      '4等', '4等', '4等', '4等', '4等',
+      'ハズレ', 'ハズレ', 'ハズレ', 'ハズレ', 'ハズレ'
+    ];
+    const KUJI_TOTAL = KUJI_LIST.length;
+    const SOREIKA_LIST = ['絵', '簡単な立体', '小物'];
+
+    function getTimeSlot() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = (now.getMonth() + 1).toString().padStart(2, '0');
+      const d = now.getDate().toString().padStart(2, '0');
+      const slot = now.getHours() < 12 ? 'AM' : 'PM';
+      return `${y}-${m}-${d}_${slot}`;
+    }
+
+    function getKujiBox() {
+      // くじの履歴をlocalStorageから取得
+      const slot = getTimeSlot();
+      const boxKey = `kuji_box_${slot}`;
+      let box = localStorage.getItem(boxKey);
+      if (box) {
+        return JSON.parse(box);
+      } else {
+        // 新しい時間帯ならシャッフルして新規作成
+        const shuffled = [...KUJI_LIST];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        localStorage.setItem(boxKey, JSON.stringify(shuffled));
+        return shuffled;
+      }
+    }
+
+    function updateKujiBox(box) {
+      const slot = getTimeSlot();
+      const boxKey = `kuji_box_${slot}`;
+      localStorage.setItem(boxKey, JSON.stringify(box));
+    }
+
+    function getPrize(grade) {
+      switch (grade) {
+        case '特賞':
+          return Math.random() < 0.5 ? '立体3つ' : 'それ以下3つ';
+        case '1等':
+          return Math.random() < 0.5 ? '立体2つ' : 'それ以下2つ';
+        case '2等':
+          return Math.random() < 0.5 ? '立体とそれ以下' : 'それ以下2つ';
+        case '3等':
+          return Math.random() < 0.5 ? '立体' : 'それ以下の絵';
+        case '4等':
+          return '簡単な立体';
+        case 'ハズレ':
+          return '何もなし';
+        default:
+          return '';
+      }
+    }
+
+    function countSoreika(prize) {
+      if (prize === 'それ以下3つ') return 3;
+      if (prize === 'それ以下2つ') return 2;
+      if (prize === '立体とそれ以下') return 1;
+      if (prize === 'それ以下の絵') return 1;
+      if (prize === '簡単な立体') return 0;
+      if (prize === '立体3つ' || prize === '立体2つ' || prize === '立体') return 0;
+      if (prize === '何もなし') return 0;
+      return 0;
+    }
+
+    let currentSoreikaCount = 0;
+
+    // 名前管理
+    let userName = localStorage.getItem('kuji_user_name') || '';
+    function showNameInput() {
+      document.getElementById('nameInputScreen').style.display = '';
+      document.getElementById('mainScreen').style.display = 'none';
+    }
+    function showMainScreen() {
+      document.getElementById('nameInputScreen').style.display = 'none';
+      document.getElementById('mainScreen').style.display = '';
+      // 松橋悠太郎なら履歴ボタン表示
+      if (userName === '松橋悠太郎') {
+        document.getElementById('viewHistoryBtn').style.display = '';
+      } else {
+        document.getElementById('viewHistoryBtn').style.display = 'none';
+      }
+    }
+    if (!userName) {
+      showNameInput();
+    } else {
+      showMainScreen();
+    }
+    document.getElementById('userNameBtn').onclick = function() {
+      const val = document.getElementById('userNameInput').value.trim();
+      if (val) {
+        userName = val;
+        localStorage.setItem('kuji_user_name', userName);
+        showMainScreen();
+      }
+    };
+
+    // 履歴保存・表示
+    function saveHistory(name, grade, prize, count) {
+      let history = JSON.parse(localStorage.getItem('kuji_history') || '[]');
+      history.push({ name, grade, prize, count, time: new Date().toLocaleString() });
+      localStorage.setItem('kuji_history', JSON.stringify(history));
+    }
+    function showHistory() {
+      let history = JSON.parse(localStorage.getItem('kuji_history') || '[]');
+      let html = '<h3>全員のくじ履歴</h3><table border="1" style="border-collapse:collapse;"><tr><th>名前</th><th>等級</th><th>景品</th><th>個数</th><th>日時</th></tr>';
+      for (const h of history) {
+        html += `<tr><td>${h.name}</td><td>${h.grade}</td><td>${h.prize}</td><td>${h.count}</td><td>${h.time}</td></tr>`;
+      }
+      html += '</table>';
+      document.getElementById('history').innerHTML = html;
+    }
+    document.getElementById('viewHistoryBtn').onclick = showHistory;
+
+    document.getElementById('drawBtn').onclick = function() {
+      const resultDiv = document.getElementById('result');
+      const easyArtBtn = document.getElementById('easyArtBtn');
+      const hardArtBtn = document.getElementById('hardArtBtn');
+      // 毎回全20本からランダムに1本を選ぶ
+      const idx = Math.floor(Math.random() * KUJI_LIST.length);
+      const result = KUJI_LIST[idx];
+      const prize = getPrize(result);
+      let prizeCount = getPrizeCount(prize);
+      resultDiv.textContent = `名前: ${userName}　結果: ${result}　景品: ${prize}　個数: ${prizeCount}`;
+      saveHistory(userName, result, prize, prizeCount);
+      // すべてのボタンを一旦完全非表示
+      easyArtBtn.style.display = 'none';
+      hardArtBtn.style.display = 'none';
+      easyArtBtn.onclick = null;
+      hardArtBtn.onclick = null;
+      // ハズレまたは景品が簡単な絵のときはボタンを表示しない
+      if (result === 'ハズレ' || prize === '何もなし' || prize === '簡単な絵') {
+        return;
+      }
+      // 4等のときは難しい絵ボタンを非表示
+      if (result === '4等') {
+        easyArtBtn.style.display = '';
+        easyArtBtn.onclick = function() { showBigArtScreen('簡単な絵', result, 1, userName); };
+        hardArtBtn.style.display = 'none';
+        hardArtBtn.onclick = null;
+      } else {
+        easyArtBtn.style.display = '';
+        hardArtBtn.style.display = '';
+        easyArtBtn.onclick = function() { showBigArtScreen('簡単な絵', result, 1, userName); };
+        hardArtBtn.onclick = function() { showBigArtScreen('難しい絵＋簡単な絵2個', result, 3, userName); };
+      }
+    };
+
+    function getPrizeCount(prize) {
+      if (prize === '立体3つ' || prize === 'それ以下3つ') return 3;
+      if (prize === '立体2つ') return 2;
+      if (prize === '立体とそれ以下') return 2;
+      if (prize === 'それ以下の絵') return 1;
+      if (prize === '立体') return 1;
+      if (prize === '簡単な立体') return 1;
+      if (prize === '簡単な絵') return 1;
+      return 0;
+    }
+
+    function showArtChoice(index, results) {
+      document.getElementById('easyArtBtn').style.display = '';
+      document.getElementById('hardArtBtn').style.display = '';
+      document.getElementById('easyArtBtn').onclick = function() {
+        results[index] = '簡単な絵';
+        updateSoreikaResult(results);
+        document.getElementById('easyArtBtn').style.display = 'none';
+        document.getElementById('hardArtBtn').style.display = 'none';
+        showBigArtScreen('簡単な絵');
+      };
+      document.getElementById('hardArtBtn').onclick = function() {
+        results[index] = '難しい絵';
+        updateSoreikaResult(results);
+        document.getElementById('easyArtBtn').style.display = 'none';
+        document.getElementById('hardArtBtn').style.display = 'none';
+        showBigArtScreen('難しい絵');
+      };
+    }
+
+    function updateSoreikaResult(results) {
+      document.getElementById('result').textContent = document.getElementById('result').textContent.replace(/\n?それ以下の景品:.*/, '');
+      document.getElementById('result').textContent += `\nそれ以下の景品: ${results.join('、')}`;
+    }
+
+    document.getElementById('soreikaBtn').onclick = function() {
+      const resultDiv = document.getElementById('result');
+      const soreikaBtn = document.getElementById('soreikaBtn');
+      let results = [];
+      let artIndex = -1;
+      for (let i = 0; i < currentSoreikaCount; i++) {
+        const idx = Math.floor(Math.random() * SOREIKA_LIST.length);
+        results.push(SOREIKA_LIST[idx]);
+        if (SOREIKA_LIST[idx] === '絵' && artIndex === -1) {
+          artIndex = i;
+        }
+      }
+      resultDiv.textContent += `\nそれ以下の景品: ${results.join('、')}`;
+      soreikaBtn.style.display = 'none';
+      if (artIndex !== -1) {
+        showArtChoice(artIndex, results);
+      }
+    };
+
+    function showBigArtScreen(artType, grade, count, name) {
+      document.body.innerHTML = `
+        <div id="bigArtBg">
+          <div id="bigArtContent">
+            <div id="bigArtGrade">${grade}</div>
+            <div id="bigArtType">${artType}</div>
+            <div id="bigArtCount">${count}個</div>
+            <div id="bigArtName">${name}</div>
+          </div>
+        </div>
+      `;
+      // 既存のstyleタグを削除してから追加
+      document.querySelectorAll('style').forEach(s => s.remove());
+      const style = document.createElement('style');
+      style.textContent = `
+        #bigArtBg {
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: linear-gradient(135deg, #fceabb 0%, #f8b500 100%);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+        }
+        #bigArtContent {
+          background: rgba(255,255,255,0.95);
+          border-radius: 32px;
+          padding: 60px 80px;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+          text-align: center;
+        }
+        #bigArtGrade {
+          font-size: 2.5em;
+          font-weight: bold;
+          margin-bottom: 0.5em;
+          color: #e67e22;
+        }
+        #bigArtType {
+          font-size: 3em;
+          font-weight: bold;
+          margin-bottom: 0.5em;
+          color: #f8b500;
+          text-shadow: 2px 2px 8px #fff;
+        }
+        #bigArtCount {
+          font-size: 2em;
+          font-weight: bold;
+          color: #333;
+          margin-top: 0.5em;
+        }
+        #bigArtName {
+          font-size: 2em;
+          font-weight: bold;
+          color: #2980b9;
+          margin-top: 0.5em;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  </script>
+</body>
+</html> 
